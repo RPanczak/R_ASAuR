@@ -1,0 +1,97 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 01"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(12345)
+
+library(pacman)
+p_load(asaur)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Data
+
+> Xelox in patients with advanced gastric cancer  
+
+```{r}
+data(gastricXelox)
+
+gastricXelox[23:27,]
+```
+
+> Pancreatic cancer in patients with locally advanced or metastatic
+disease
+
+```{r}
+data(pancreatic)
+
+head(pancreatic)
+```
+
+> Survival prospects of prostate cancer patients with high-risk disease
+
+```{r}
+data(prostateSurvival)
+
+prostateSurvival[88:95,]
+```
+
+> Comparison of medical therapies to aid smokers to quit
+
+```{r}
+data(pharmacoSmoking)
+
+pharmacoSmoking[1:6, 2:8]
+```
+
+> Prediction of survival of hepatocellular carcinoma patients using
+biomarkers
+
+```{r}
+data(hepatoCellular)
+
+hepatoCellular[c(1, 2, 3, 65, 71), c(2, 3, 16:20, 24, 47)]
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`

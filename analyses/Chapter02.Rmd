@@ -1,0 +1,124 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 02"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(12345)
+
+library(pacman)
+p_load(asaur, survival)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Example 2.1
+
+```{r}
+data(survexp, package = "survival")
+
+survexp.us
+
+tm <- c(0, # birth
+        1/365, # first day of life
+        7/365, # seventh day of life
+        28/365, # fourth week of life
+        1:110) # subsequent years
+
+hazMale <- survexp.us[, "male", "2004"] # 2004 males
+
+hazFemale <- survexp.us[,  "female","2004"] # 2004 females
+
+plot(1:110, log(hazMale), type = "l", col = "blue")
+lines(1:110, log(hazFemale), type = "l", col = "red")
+```
+
+# 2.4 Parametric Survival Distributions
+
+```{r}
+weibSurv <- function(t, shape, scale) {
+  pweibull(t, shape = shape, scale = scale, lower.tail = F)
+}
+
+curve(weibSurv(x, shape = 1.5, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylim = c(0,1), col = "red", ylab = "Survival probability", xlab = "Time")
+
+curve(weibSurv(x, shape = 1, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylim = c(0,1), col = "black", add = TRUE)
+
+curve(weibSurv(x, shape = 0.75, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylim = c(0,1), col = "blue", add = TRUE)
+
+weibHaz <- function(x, shape, scale) {
+  dweibull(x, shape = shape,
+           scale = scale) / 
+    pweibull(x, shape = shape, scale = scale, lower.tail = F)
+}
+curve(weibHaz(x, shape = 1.5, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylab = "Hazard", xlab = "Time", col = "red")
+
+curve(weibHaz(x, shape = 1, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylab = "Hazard", xlab = "Time", col = "black", add = TRUE)
+
+curve(weibHaz(x, shape = 0.75, scale = 1/0.03), 
+      from = 0, to = 80,
+      ylab = "Hazard", xlab = "Time", col = "blue", add = TRUE)
+```
+
+# 2.5 Computing the Survival Function from the Hazard Function
+
+```{r}
+# tm.diff <- diff(tm)
+tm.diff <- diff(1:111)
+survMale <- exp(-cumsum(hazMale*tm.diff)*365.24)
+survFemale <- exp(-cumsum(hazFemale*tm.diff)*365.24)
+
+sum(survMale*tm.diff) # mean age of male death in 2004
+sum(survFemale*tm.diff) # mean age of female death in 2004
+```
+
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`

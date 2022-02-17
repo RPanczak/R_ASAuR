@@ -1,0 +1,219 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 03"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(12345)
+
+library(pacman)
+p_load(asaur, survival, muhaz, survminer)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 3.1 Nonparametric Estimation of the Survival Function
+
+```{r}
+tt <- c(7, 6, 6, 5, 2, 4)
+cens <- c(0, 1, 0, 0, 1, 1)
+
+Surv(tt, cens)
+
+result.km <- survfit(Surv(tt, cens) ~ 1, conf.type = "log-log")
+result.km
+
+summary(result.km)
+
+plot(result.km)
+```
+
+```{r}
+result.fh <- survfit(Surv(tt, cens) ~ 1, conf.type = "log-log", type = "fh")
+
+summary(result.fh)
+
+plot(result.fh)
+```
+
+```{r}
+timeMonths <- gastricXelox$timeWeeks*7/30.25
+
+delta <- gastricXelox$delta
+
+data1 <- as.data.frame(cbind(timeMonths, delta))
+
+result.km <- survfit(Surv(timeMonths, delta) ~ 1, conf.type = "log-log", data = data1)
+
+result.km
+
+summary(result.km)
+
+summary(result.km)$table
+
+plot(result.km, conf.int = TRUE, 
+     mark = "|", 
+     xlab = "Time in months",
+     ylab = "Survival probability")
+
+title("Progression-free Survival in Gastric Cancer Patients")
+```
+
+```{r}
+# alternative to base
+ggsurvplot(result.km, 
+           data = data1,
+           conf.int = TRUE,
+           risk.table = TRUE, # Add risk table
+           surv.median.line = "hv", # Specify median survival
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+```
+
+# 3.3 Median Follow-Up Time
+
+```{r}
+delta.followup <- 1 - delta
+
+data2 <- as.data.frame(cbind(timeMonths, delta.followup))
+
+survfit(Surv(timeMonths, delta.followup) ~ 1, data = data2)
+
+median(timeMonths)
+```
+
+# 3.4 Obtaining a Smoothed Hazard and Survival Function Estimate
+
+```{r}
+t.vec <- c(7,6,6,5,2,4)
+cens.vec <- c(0,1,0,0,1,1)
+
+result.simple <- muhaz(t.vec, cens.vec, max.time = 8, 
+                       bw.grid = 2.25, bw.method = "global", b.cor = "none")
+plot(result.simple)
+```
+
+```{r}
+result.pe5 <- pehaz(timeMonths, delta, width = 5, max.time = 20)
+plot(result.pe5, ylim = c(0, 0.15), col = "black")
+
+result.pe1 <- pehaz(timeMonths, delta, width = 1, max.time = 20)
+lines(result.pe1)
+
+result.smooth <- muhaz(timeMonths, delta, b.cor = "left", max.time = 20, 
+                       bw.smooth = 20)
+lines(result.smooth, col = "red")
+
+result.smooth <- muhaz(timeMonths, delta,b.cor = "left", max.time = 20, 
+                       bw.method = "global")
+lines(result.smooth, col = "blue")
+```
+
+```{r}
+haz <- result.smooth$haz.est
+times <- result.smooth$est.grid
+surv <- exp(-cumsum(haz[1:(length(haz)-1)] * diff(times)))
+```
+
+```{r}
+result.km <- survfit(Surv(timeMonths, delta) ~ 1, conf.type = "none")
+
+plot(result.km, conf.int = T, mark = "|", 
+     xlab = "Time in months", xlim = c(0,30), ylab = "Survival probability")
+
+lines(surv ~ times[1:(length(times) - 1)])
+```
+
+# 3.5 Left Truncation
+
+```{r}
+tt <- c(7, 6, 6, 5, 2, 4)
+status <- c(0, 1, 0, 0, 1, 1)
+backTime <- c(-2, -5, -3, -3, -2, -5)
+
+tm.enter <- -backTime
+tm.exit <- tt - backTime
+
+result.left.trunc.km <- survfit(Surv(tm.enter, tm.exit, status, type = "counting") ~ 1,
+                                conf.type = "none")
+
+result.left.trunc.km
+summary(result.left.trunc.km)
+
+result.left.trunc.naa <- survfit(Surv(tm.enter, tm.exit, status, type = "counting") ~ 1,
+                                 type = "fleming-harrington", conf.type = "none")
+result.left.trunc.naa
+summary(result.left.trunc.naa)
+```
+
+```{r}
+head(ChanningHouse)
+
+ChanningHouse <- within(ChanningHouse, {
+  entryYears <- entry/12
+  exitYears <- exit/12}
+)
+
+ChanningMales <- ChanningHouse[ChanningHouse$sex == "Male",]
+
+result.km <- survfit(Surv(entryYears, exitYears, cens, type = "counting") ~ 1, 
+                     data = ChanningMales)
+
+plot(result.km, 
+     xlim = c(64, 101), xlab = "Age",
+     ylim = c(0, 1), ylab = "Survival probability", 
+     conf.int = FALSE)
+
+result.naa <- survfit(Surv(entryYears, exitYears, cens, type = "counting") ~ 1, 
+                      type = "fleming-harrington", data = ChanningMales)
+
+lines(result.naa, col = "blue", conf.int = FALSE)
+
+result.km.68 <- survfit(Surv(entryYears, exitYears, cens, type = "counting") ~ 1, 
+                        start.time = 68, data = ChanningMales)
+
+lines(result.km.68, col = "green", conf.int = FALSE)
+
+legend("topright", legend = c("KM", "NAA", "KM 68 and older"),
+       lty = 1, col = c("black", "blue", "green"))
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`
