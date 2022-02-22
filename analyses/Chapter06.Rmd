@@ -1,0 +1,86 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 06"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur, survival, survminer)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 6.1 Covariate Adjustment
+
+```{r}
+lambda.mutant.0 <- 0.03
+lambda.mutant.1 <- 0.03*0.55
+lambda.wt.0 <- 0.03*0.2
+lambda.wt.1 <- 0.03*0.2*0.55
+
+tt.control.mutant <- rexp(25, rate=lambda.mutant.0)
+tt.treat.mutant <- rexp(125, rate=lambda.mutant.1)
+tt.control.wt <- rexp(125, rate=lambda.wt.0)
+tt.treat.wt <- rexp(25, rate=lambda.wt.1)
+ttAll <- c(tt.control.mutant, tt.treat.mutant, tt.control.wt, tt.treat.wt)
+status <- rep(1, length(ttAll))
+genotype <- c(rep("mutant", 150), rep("wt", 150))
+trt <- c(rep(0, 25), rep(1, 125), rep(0, 125), rep(1, 25))
+```
+
+
+```{r}
+unadjusted <- coxph(Surv(ttAll, status) ~ trt)
+
+summary(unadjusted)
+
+stratified <- coxph(Surv(ttAll, status) ~ trt + strata(genotype))
+
+summary(stratified)
+
+adjusted <- coxph(Surv(ttAll, status) ~ trt + genotype)
+
+summary(adjusted)
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`

@@ -1,0 +1,121 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 05"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur, survival, anytime, survminer)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 5.3.3 The Likelihood Ratio Test
+
+# 4.2 Stratified Tests
+
+```{r}
+tt <- c(6, 7, 10, 15, 19, 25)
+delta <- c(1, 0, 1, 1, 0, 1)
+trt <- c(0, 0, 1, 0, 1, 1)
+
+data <- as.data.frame(cbind(tt, delta, trt))
+
+result.cox <- coxph(Surv(tt, delta) ~ trt, data = data)
+
+summary(result.cox)
+```
+
+# 5.8 Additional Notes
+
+```{r}
+data(ChanningHouse)
+
+ChanningHouse <- within(ChanningHouse, {
+  entryYears <- entry/12
+  exitYears <- exit/12})
+
+channing68 <- ChanningHouse[ChanningHouse$exitYears >= 68,]
+
+result.cox <- coxph(Surv(entryYears, exitYears, cens, type = "counting") ~ sex,
+                    data = channing68)
+
+summary(result.cox)
+
+ggforest(result.cox, data = channing68)
+ggcoxdiagnostics(result.cox, data = channing68)
+cox.zph.fit <- cox.zph(result.cox)
+ggcoxzph(cox.zph.fit, data = channing68)
+```
+
+# Exercise 5.1
+
+```{r}
+str(aml)
+head(aml)
+
+result.cox <- coxph(Surv(time, status) ~ x, data = aml)
+
+summary(result.cox)
+
+ggforest(result.cox, data = aml)
+ggcoxdiagnostics(result.cox, data = aml)
+cox.zph.fit <- cox.zph(result.cox)
+ggcoxzph(cox.zph.fit, data = aml)
+
+aml$time.months <- cut(aml$time, breaks = seq(0, 161, 4), labels = F)
+
+result.cox1 <- coxph(Surv(time.months, status) ~ x, data = aml,
+                     ties = "efron")
+
+result.cox2 <- coxph(Surv(time.months, status) ~ x, data = aml,
+                     ties = "breslow")
+
+result.cox3 <- coxph(Surv(time.months, status) ~ x, data = aml,
+                     ties= "exact")
+
+
+sjPlot::tab_model(result.cox, result.cox1, result.cox2, result.cox3)
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`
