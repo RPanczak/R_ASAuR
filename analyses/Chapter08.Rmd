@@ -1,0 +1,142 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 08"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur, survival, anytime, survminer)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 8.1 Intro
+
+```{r}
+result.heart <- coxph(Surv(futime, fustat) ~ transplant + age + surgery, data = jasa)
+summary(result.heart)
+```
+
+```{r}
+ind30 <- jasa$futime >= 30
+transplant30 <- {{jasa$transplant == 1} & {jasa$wait.time < 30}}
+summary(coxph(Surv(futime, fustat) ~ transplant30 + age + surgery, 
+              data = jasa, subset = ind30 ))
+```
+
+```{r}
+id <- 1:nrow(jasa)
+jasaT <- data.frame(id, jasa)
+id.simple <- c(2, 5, 10, 12, 28, 95)
+heart.simple <- jasaT[id.simple,c(1, 10, 9, 6, 11)]
+
+summary(coxph(Surv(futime, fustat) ~ transplant, data = heart.simple))
+
+sdata <- tmerge(heart.simple, 
+                heart.simple, 
+                id = id, death = event(futime, fustat),
+                transpl = tdc(wait.time))
+
+heart.simple.counting <- sdata[, -(2:5)] 
+heart.simple.counting
+
+summary(coxph(Surv(tstart, tstop, death) ~ transpl, data = heart.simple.counting))
+```
+
+
+```{r eval=FALSE}
+# dpesnt work yet
+tdata <- jasa[, -c(1:4, 11:14)]
+tdata$futime <- pmax(.5, tdata$futime)
+indx <- {{tdata$wait.time == tdata$futime} & !is.na(tdata$wait.time)}
+tdata$wait.time[indx] <- tdata$wait.time[indx] - .5
+sdata <- tmerge(tdata, tdata, id = 1:nrow(tdata),
+                death = event(futime, fustat), 
+                trans = tdc(wait.time))
+jasa.counting <- sdata[, c(7:11, 2:3)]
+head(jasa.counting)
+
+summary(coxph(Surv(tstart, tstop, death) ~ trans + surgery + age, data = jasa.counting))
+```
+
+## 8.2 Predictable Time Dependent Variables
+
+```{r}
+data(pancreatic2)
+
+stage.n <- rep(0, nrow(pancreatic2))
+stage.n[pancreatic2$stage == "M"] <- 1
+result.panc <- coxph(Surv(pfs) ~ stage.n, data = pancreatic2)
+result.panc
+```
+
+```{r}
+result.panc2.tt <- coxph(Surv(pfs) ~ stage.n + tt(stage.n),
+                         data = pancreatic2, 
+                         tt = function(x,t, ...) x*log(t))
+
+result.panc2.tt
+```
+
+```{r}
+result.sch.resid <- cox.zph(result.panc, transform = function(pfs) log(pfs))
+plot(result.sch.resid)
+abline(coef(result.panc2.tt), col = "red")
+```
+
+```{r}
+coxph(Surv(pfs) ~ stage.n + tt(stage.n), 
+      data = pancreatic2, 
+      tt = function(x,t, ...) x*t)
+```
+
+```{r}
+coxph(Surv(time, status == 2) ~ age, data = lung)
+
+coxph(Surv(time, status==2) ~ tt(age), data = lung,
+      tt = function(x, t, ...) {
+        age <- x + t/365.25
+        age})
+```
+
+<!-- ----------------------------------------------------- -->
+
+# Computing Environment
+
+`r mu$session()`
