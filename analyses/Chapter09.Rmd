@@ -1,0 +1,233 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 09"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur,
+       survival, anytime, survminer)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      prompt = FALSE,
+                      tidy = FALSE,
+                      comment = NA,
+                      message = FALSE,
+                      warning = FALSE,
+                      echo = TRUE)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 9.1 Clustered Survival Times and Frailty Models
+
+```{r}
+data(ashkenazi)
+ashkenazi[ashkenazi$famID %in% c(1, 9, 94), ]
+```
+
+```{r}
+result.coxph <- coxph(Surv(age, brcancer) ~ mutant,
+                      data = ashkenazi)
+
+summary(result.coxph)
+result.coxph$loglik
+```
+
+```{r}
+result.coxph.cluster <- coxph(Surv(age, brcancer) ~ mutant + cluster(famID), 
+                              data = ashkenazi)
+
+summary(result.coxph.cluster)
+```
+
+```{r}
+result.coxph.frail <- coxph(Surv(age, brcancer) ~ mutant + frailty(famID), 
+                            data = ashkenazi)
+
+summary(result.coxph.frail)
+```
+
+```{r}
+p_load(coxme)
+result.coxme <- coxme(Surv(age, brcancer) ~ mutant +
+                        (1 | famID), 
+                      data = ashkenazi)
+
+summary(result.coxme)
+```
+
+
+```{r}
+p_load(timereg)
+data(diabetes)
+head(diabetes)
+```
+
+```{r}
+result.coxme <- coxme(Surv(time, status) ~ treat + as.factor(adult) +
+                        treat*as.factor(adult) + 
+                        (1 | id),
+                      data = diabetes)
+
+summary(result.coxme)
+```
+
+# 9.2 Cause-Specific Hazards
+
+```{r}
+data(prostateSurvival)
+
+prostateSurvival <- within(prostateSurvival, {
+  status.prost <- as.numeric({status == 1})
+  status.other <- as.numeric({status == 2})})
+
+attach(prostateSurvival)
+prostateSurvival.highrisk <- prostateSurvival[{{grade == "poor"} & 
+    {stage=="T2"} & 
+    {ageGroup == "80+"}},]
+
+head(prostateSurvival.highrisk)
+
+status.prost <- {prostateSurvival.highrisk$status == 1}
+status.other <- {prostateSurvival.highrisk$status == 2}
+```
+
+```{r}
+result.prostate.km <- survfit(Surv(survTime, event = status.prost) ~ 1, 
+                              data = prostateSurvival.highrisk)
+
+result.other.km <- survfit(Surv(survTime, event = status.other) ~ 1, 
+                           data = prostateSurvival.highrisk)
+
+surv.other.km <- result.other.km$surv
+time.km <- result.other.km$time/12
+
+surv.prost.km <- result.prostate.km$surv
+cumDist.prost.km <- 1 - surv.prost.km
+
+plot(cumDist.prost.km ~ time.km, type = "s", ylim = c(0, 1), lwd = 2, xlab = "Years from prostate cancer diagnosis", col = "blue")
+
+lines(surv.other.km ~ time.km, type = "s", col = "green", lwd = 2)
+```
+
+```{r}
+tt <- c(2,7,5,3,4,6)
+status <- c(1,2,1,2,0,0)
+
+status.any <- as.numeric(status >= 1)
+result.any <- survfit(Surv(tt, status.any) ~ 1)
+result.any$surv
+
+library(mstate)
+ci <- Cuminc(time = tt, status = status)
+ci
+```
+
+```{r}
+ci.prostate <- Cuminc(time = prostateSurvival.highrisk$survTime,
+                      status = prostateSurvival.highrisk$status)
+
+head(ci.prostate)
+
+ci1 <- ci.prostate$CI.1
+# CI.1 is for prostate cancer
+ci2 <- ci.prostate$CI.2
+# CI.2 is for other causes
+times <- ci.prostate$time/12
+# convert months to years
+Rci2 <- 1 - ci2
+
+plot(Rci2 ~ times, type = "s", ylim = c(0,1), lwd = 2, col = "green", xlab = "Time in years", ylab = "Survival probability")
+lines(ci1 ~ times, type = "s", lwd = 2, col = "blue")
+lines(surv.other.km ~ time.km, type = "s", col = "lightgreen", lwd = 1)
+lines(cumDist.prost.km ~ time.km, type = "s", col = "lightblue", lwd = 1)
+```
+
+```{r}
+detach(prostateSurvival)
+prostateSurvival.T2 <- prostateSurvival[prostateSurvival$stage == "T2", ]
+
+attach(prostateSurvival.T2)
+
+result.prostate <- coxph(Surv(survTime, status.prost) ~ grade + ageGroup,
+                         data = prostateSurvival.T2)
+summary(result.prostate)
+
+result.other <- coxph(Surv(survTime, status.other) ~ grade + ageGroup,
+                      data = prostateSurvival.T2)
+summary(result.other)
+
+cov.matrix <- model.matrix(~ grade + ageGroup)
+head(cov.matrix)
+cov.matrix.use <- cov.matrix[,-1] # drop the first column
+
+library(cmprsk)
+result.prostate.crr <- crr(prostateSurvival.T2$survTime, 
+                           prostateSurvival.T2$status, 
+                           cov1 = cov.matrix[,-1], failcode = 1)
+
+result.other.crr <- crr(prostateSurvival.T2$survTime, 
+                        prostateSurvival.T2$status, 
+                        cov1 = cov.matrix[,-1], failcode = 2)
+summary(result.other.crr)
+```
+
+```{r}
+tmat <- trans.comprisk(2, names = c("event-free", "prostate", "other"))
+
+prostate.long <- with(prostateSurvival.T2,
+                      (msprep(time = cbind(NA, survTime, survTime),
+                              status = cbind(NA, status.prost, status.other),
+                              keep = data.frame(grade, ageGroup), trans = tmat))
+)
+
+head(prostate.long)
+events(prostate.long)
+```
+
+```{r}
+summary(coxph(Surv(time, status) ~ grade + ageGroup,
+              data = prostate.long, subset = {trans == 1}))
+summary(coxph(Surv(time, status) ~ grade + ageGroup,
+              data = prostate.long, subset = {trans == 2}))
+
+summary(coxph(Surv(time, status) ~ grade + ageGroup + strata(trans), 
+              data=prostate.long))
+
+summary(coxph(Surv(time, status) ~ grade*factor(trans) + ageGroup + strata(trans),
+              data=prostate.long))
+
+summary(coxph(Surv(time, status) ~ (grade + ageGroup)*trans + 
+                ageGroup + strata(trans), 
+              data=prostate.long))
+```
+
