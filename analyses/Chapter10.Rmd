@@ -1,0 +1,303 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 10"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur, survival)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  prompt = FALSE,
+  tidy = FALSE,
+  comment = NA,
+  message = FALSE,
+  warning = FALSE,
+  echo = TRUE
+)
+knitr::opts_knit$set(width = 75)
+
+mu <- Hmisc::markupSpecs$html
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 10.3 The Weibull Model
+
+```{r}
+data(gastricXelox)
+
+timeMonths <- gastricXelox$timeWeeks * 7 / 30.25
+delta <- gastricXelox$delta
+
+result.km <- survfit(Surv(timeMonths, delta) ~ 1)
+
+survEst <- result.km$surv
+survTime <- result.km$time
+logLogSurvEst <- log(-log(survEst))
+logSurvTime <- log(survTime)
+
+plot(logLogSurvEst ~ logSurvTime)
+result.lm <- lm(logLogSurvEst ~ logSurvTime)
+abline(result.lm)
+```
+
+```{r}
+attach(pharmacoSmoking)
+ttr[ttr == 0] <- 0.5
+
+result.surv <- survfit(Surv(ttr, relapse) ~ 1)
+survEst <- result.surv$surv
+survTime <- result.surv$time
+
+logLogSurvEst <- log(-log(survEst))
+logSurvTime <- log(survTime)
+(result.lm <- lm(logLogSurvEst ~ logSurvTime))
+
+plot(logLogSurvEst ~ logSurvTime)
+abline(result.lm)
+```
+
+```{r}
+logLikWeib <- function(par, tt, status) {
+  mu <- par[1]
+  sigma <- par[2]
+  lambda.p <- exp(-mu)
+  alpha.p <- 1 / sigma
+  dd <- sum(status)
+  sum.t <- sum(status * log(tt))
+  sum.t.alpha <- sum(tt^alpha.p)
+  term.1 <- dd * log(alpha.p) + alpha.p * dd * log(lambda.p)
+  term.2 <- (alpha.p - 1) * sum.t
+  term.3 <- (lambda.p^alpha.p) * sum.t.alpha
+  result <- term.1 + term.2 - term.3
+  result
+}
+```
+
+```{r}
+result <- optim(
+  par = c(4.568, 2.280), fn = logLikWeib, method =
+    "L-BFGS-B",
+  lower = c(0.001, 0.01), upper = c(5, 5),
+  control = list(fnscale = -1),
+  tt = ttr, status = relapse
+)
+
+result$par
+
+result.survreg.0 <- survreg(Surv(ttr, relapse) ~ 1, dist = "weibull")
+summary(result.survreg.0)
+```
+
+```{r}
+logLikWeibProf <- function(par, tt, status) {
+  # find log-likelihood for a particular sigma, using mle for mu
+  sigma <- par
+  alpha.p <- 1 / sigma
+  dd <- sum(status)
+  sum.t <- sum(status * log(tt))
+  sum.t.alpha <- sum(tt^alpha.p)
+  lambda.p <- (dd / sum.t.alpha)^(1 / alpha.p)
+  term.1 <- dd * log(alpha.p) + alpha.p * dd * log(lambda.p)
+  term.2 <- (alpha.p - 1) * sum.t
+  term.3 <- (lambda.p^alpha.p) * sum.t.alpha
+  result <- term.1 + term.2 - term.3
+  result
+}
+```
+
+```{r}
+resultProf <- optim(
+  par = c(2.280), fn = logLikWeibProf, method = "L-BFGS-B",
+  lower = c(0.01), upper = c(5), control = list(fnscale = -1),
+  tt = ttr, status = relapse
+)
+
+sigma.hat <- resultProf$par
+sigma.hat
+```
+
+```{r}
+dd <- sum(relapse)
+sigma <- resultProf$par
+alpha.p <- 1 / sigma.hat
+sum.t.alpha <- sum(ttr^alpha.p)
+lambda.p <- (dd / sum.t.alpha)^(1 / alpha.p)
+mu.hat <- -log(lambda.p)
+mu.hat
+```
+
+```{r}
+sigma.list <- (100:500) / 100
+n.list <- length(sigma.list)
+logLik.list <- rep(NA, n.list)
+for (i in 1:n.list) {
+  logLik.list[i] <- logLikWeibProf(
+    par = sigma.list[i], ttr,
+    relapse
+  )
+}
+plot(logLik.list ~ sigma.list,
+  type = "l", xlab = "sigma",
+  ylab = "profile log-likelihood"
+)
+abline(v = sigma.hat, col = "gray")
+```
+
+```{r}
+result.surv <- survfit(Surv(ttr, relapse) ~ 1, subset = {
+  grp == "patchOnly"
+})
+result.summ <- summary(result.surv, time = c(28, 84))
+t.vec <- result.summ$time
+s.vec <- result.summ$surv
+data.frame(t.vec, s.vec)
+```
+
+```{r}
+library(Hmisc)
+pharmWeib <- Weibull2(t.vec, s.vec)
+
+t.vals <- 1:200
+s.vals <- pharmWeib(t.vals)
+
+model.pharm.weib.basic <- survreg(Surv(ttr, relapse) ~ 1,
+  dist = "weibull", subset = {
+    grp == "patchOnly"
+  }
+)
+mu.hat <- model.pharm.weib.basic$coefficients
+sigma.hat <- model.pharm.weib.basic$scale
+lambda.hat <- exp(-mu.hat)
+# " 1 / scale"
+alpha.hat <- 1 / sigma.hat
+# "shape"
+s.mle.vals <- 1 - pweibull(t.vals,
+  shape = alpha.hat,
+  scale = 1 / lambda.hat
+)
+
+plot(result.surv,
+  conf.int = F, xlab = "Days to relapse",
+  ylab = "Survival probability"
+)
+lines(s.mle.vals ~ t.vals, col = "blue")
+lines(s.vals ~ t.vals, col = "red")
+points(t.vec, s.vec, col = "red")
+```
+
+```{r}
+result.survreg.grp <- survreg(Surv(ttr, relapse) ~ grp, dist = "weibull")
+
+summary(result.survreg.grp)
+
+result.coxph.grp <- coxph(Surv(ttr, relapse) ~ grp)
+summary(result.coxph.grp)
+```
+
+```{r}
+mu0.hat <- result.survreg.grp$coef[1]
+sigma.hat <- result.survreg.grp$scale
+alpha.hat <- 1 / sigma
+lambda0.hat <- exp(-mu0.hat)
+
+tt.vec <- 0:182
+surv0.vec <- 1 - pweibull(tt.vec, shape = alpha, scale = 1 / lambda0.hat)
+```
+
+```{r}
+gamma.hat <- result.survreg.grp$coef[2]
+surv1.vec <- surv0.vec^(exp(-gamma.hat / sigma.hat))
+
+coxph.surv.est <- survfit(result.coxph.grp, newdata = data.frame(list(grp = c("combination", "patchOnly"))))
+
+plot(coxph.surv.est, col = c("red", "black"))
+lines(surv0.vec ~ tt.vec, col = "red")
+lines(surv1.vec ~ tt.vec)
+```
+
+```{r}
+modelAll2.coxph <- coxph(Surv(ttr, relapse) ~ grp + age + employment)
+
+summary(modelAll2.coxph)
+```
+
+```{r}
+model.pharm.weib <- survreg(Surv(ttr, relapse) ~ grp + age + employment, dist = "weibull")
+
+summary(model.pharm.weib)
+```
+
+```{r}
+weib.coef.all <- model.pharm.weib$coef
+weib.coef <- weib.coef.all[2:5]
+
+weib.coef.ph <- -weib.coef / model.pharm.weib$scale
+coxph.coef <- model.pharm.coxph$coef
+
+data.frame(weib.coef.ph, coxph.coef)
+```
+
+```{r}
+modelAll.pharm.weib <- survreg(Surv(ttr, relapse) ~ grp + gender + race + employment + yearsSmoking + levelSmoking + age + priorAttempts + longestNoSmoke, dist = "weibull")
+
+model.step.pharm.weib <- step(modelAll.pharm.weib)
+
+resid.deviance <- residuals(model.pharm.weib, type = "deviance")
+par(mfrow = c(2, 2))
+plot(resid.deviance ~ age)
+smoothSEcurve(resid.deviance, age)
+title("Deviance residuals\nversus age")
+plot(resid.deviance ~ grp)
+title("Deviance residuals\nversus treatment group")
+plot(resid.deviance ~ employment)
+title("Deviance residuals\nversus employment")
+
+resid.dfbeta <- residuals(model.pharm.weib, type = "dfbeta")
+n.obs <- length(ttr)
+index.obs <- 1:n.obs
+plot(resid.dfbeta[, 3] ~ index.obs,
+  type = "h",
+  xlab = "Observation", ylab = "Change in coefficient",
+  ylim = c(-0.0065, 0.004)
+)
+abline(h = 0)
+```
+
+```{r}
+model.pharm.lognormal <- survreg(Surv(ttr, relapse) ~ grp +
+  age + employment, dist = "lognormal")
+
+summary(model.pharm.lognormal)
+
+model.pharm.loglogistic <- survreg(Surv(ttr, relapse) ~ grp + age + employment, dist = "loglogistic")
+
+summary(model.pharm.loglogistic)
+```
