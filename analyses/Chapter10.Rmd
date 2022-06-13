@@ -42,8 +42,6 @@ knitr::opts_chunk$set(
   echo = TRUE
 )
 knitr::opts_knit$set(width = 75)
-
-mu <- Hmisc::markupSpecs$html
 ```
 
 <!-- ----------------------------------------------------- -->
