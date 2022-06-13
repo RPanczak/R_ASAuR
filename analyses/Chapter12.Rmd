@@ -1,0 +1,291 @@
+---
+title: "Applied Survival Analysis Using R"
+subtitle: "Chapter 12"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    code_folding: show
+    self_contained: true
+    highlight: pygments
+    keep_md: no
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs") })
+---
+
+```{r r-setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+options(scipen = 999)
+options(max.print = "75")
+set.seed(4321)
+
+library(pacman)
+p_load(asaur, survival)
+```
+
+```{r conflicts, include = FALSE}
+# tidyverse::tidyverse_conflicts()
+
+conflicted::conflict_scout()
+```
+
+```{r knit-setup, include = FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  prompt = FALSE,
+  tidy = FALSE,
+  comment = NA,
+  message = FALSE,
+  warning = FALSE,
+  echo = TRUE
+)
+knitr::opts_knit$set(width = 75)
+```
+
+<!-- ----------------------------------------------------- -->
+
+# 12.1 Using Piecewise Constant Hazards to Model Survival Data
+
+```{r}
+tt <- c(6, 7, 10, 15, 19, 25)
+delta <- c(1, 0, 1, 1, 0, 1)
+trt <- c(0, 0, 1, 0, 1, 1)
+id <- 1:6
+simple <- data.frame(id, tt, delta, trt)
+simple
+
+tau.s <- c(0, 8, 16, 30)
+simple.split.s <- survSplit(
+  data = simple, cut = tau.s, end = "tt",
+  start = "t0", event = "delta", episode = "diagGrp"
+)
+
+simple.split.s$expo <- simple.split.s$tt - simple.split.s$t0
+
+ord <- order(simple.split.s$id)
+simple.split.ord <- simple.split.s[ord, ]
+simple.split.ord
+
+result.simple.poisson <- glm(delta ~ -1 + factor(diagGrp) + trt + offset(log(expo)), family = poisson, data = simple.split.ord)
+summary(result.simple.poisson)
+
+simple.tab <- aggregate(simple.split.ord[c("delta", "expo")], by = list(treat = simple.split.ord$trt, diagGrp = simple.split.ord$diagGrp), sum)
+simple.tab
+
+result.simple.tab.poisson <- glm(delta ~ -1 + factor(diagGrp) + treat + offset(log(expo)), family = poisson, data = simple.tab)
+result.simple.tab.poisson
+
+# coxph(Surv(tt, status) ~ grp)
+
+alpha0.hat <- as.numeric(result.simple.tab.poisson$coef[1:3])
+
+beta.hat <- result.simple.tab.poisson$coef[4]
+alpha1.hat <- alpha0.hat + beta.hat
+
+library(msm)
+tt.vec <- (0:300) / 10
+piece.surv.0 <- ppexp(
+  q = tt.vec, rate = exp(alpha0.hat),
+  t = tau.s[1:3], lower.tail = F
+)
+piece.surv.1 <- ppexp(
+  q = tt.vec, rate = exp(alpha1.hat),
+  t = tau.s[1:3], lower.tail = F
+)
+```
+
+```{r}
+data(prostateSurvival)
+prost.80plus.poor <- prostateSurvival[prostateSurvival$grade == "poor" & prostateSurvival$ageGroup == "80+", ]
+
+# needs to be added???
+prost.80plus.poor <- prostateSurvival[prostateSurvival$survTime > 0, ]
+
+prost.80plus.poor$status.all <- as.numeric(prost.80plus.poor$status >= 1)
+prost.80plus.poor$T2 <- as.numeric(prost.80plus.poor$stage == "T2")
+prost.80plus.poor$id <- 1:nrow(prost.80plus.poor)
+
+head(prost.80plus.poor)
+dim(prost.80plus.poor)
+
+tau.s <- (0:5) * 24
+tau.s
+
+prost.split.s <- survSplit(data = prost.80plus.poor, cut = tau.s, end = "survTime", start = "t0", event = "status.all", episode = "survGrp")
+prost.split.s$expo <- prost.split.s$survTime - prost.split.s$t0
+
+prost.split.s <- survSplit(data = prost.80plus.poor, cut = tau.s, end = "survTime", start = "t0", event = "status.all", episode = "survGrp")
+prost.split.s$expo <- prost.split.s$survTime - prost.split.s$t0
+ord <- order(prost.split.s$id)
+prost.split.ord <- prost.split.s[ord, ]
+prost.tab <- aggregate(prost.split.ord[c("status.all", "expo")], by = list(T2 = prost.split.ord$T2, survGrp = prost.split.ord$survGrp), sum)
+prost.tab
+
+result.prost.tab.poisson <- glm(status.all ~ -1 + factor(survGrp) + T2 + offset(log(expo)), family = poisson, data = prost.tab)
+summary(result.prost.tab.poisson)
+
+alpha0.hat <- as.numeric(result.prost.tab.poisson$coef[1:5])
+beta.hat <- result.prost.tab.poisson$coef[6]
+alpha1.hat <- alpha0.hat + beta.hat
+library(msm)
+tt.vec <- 0:120
+piece.surv.0 <- ppexp(q = tt.vec, rate = exp(alpha0.hat), t = tau.s[1:5], lower.tail = F)
+piece.surv.1 <- ppexp(q = tt.vec, rate = exp(alpha1.hat), t = tau.s[1:5], lower.tail = F)
+plot(piece.surv.0 ~ tt.vec, type = "n", xlab = "Time in months", ylab = "Survival probability")
+lines(piece.surv.0 ~ tt.vec, lwd = 2)
+lines(piece.surv.1 ~ tt.vec, lwd = 2, lty = 2)
+
+summary(coxph(Surv(survTime, status.all) ~ T2, data = prost.80plus.poor))
+```
+
+# 12.2 Interval Censoring
+
+```{r}
+library(ssym)
+data(Baboons)
+Baboons[c(1, 39, 71, 101, 150), ]
+
+Baboons <- within(Baboons, {
+  delta <- rep(0, length(cs))
+  delta[cs == 0] <- 1
+  tt.L <- t
+  tt.R <- t
+  tt.L[cs == 1] <- 0.1
+})
+
+Baboons[c(1, 39, 71, 101, 150), ]
+
+library(Icens)
+library(interval)
+result.icfit <- icfit(Surv(time = tt.L, time2 = tt.R, type = "interval2") ~ 1, conf.int = T, data = Baboons)
+
+plot(result.icfit, XLAB = "Time in hours", YLAB = "Survival probability", estpar = list(col = "blue", lwd = 2), cipar = list(col = "blue", lty = 2))
+
+baboon.survreg <- survreg(Surv(time = tt.L, time2 = tt.R, type = "interval2") ~ 1, dist = "weibull", data = Baboons)
+
+ones <- rep(1, nrow(Baboons))
+baboon.survreg <- survreg(Surv(time = tt.L, time2 = tt.R, type = "interval2") ~ ones, dist = "weibull", data = Baboons)
+pct <- 1:999 / 1000
+ptime <- predict(baboon.survreg, type = "quantile", newdata = data.frame(ones = 1), p = pct, se = TRUE)
+
+matlines(cbind(ptime$fit, ptime$fit + 2 * ptime$se.fit, ptime$fit - 2 * ptime$se.fit), 1 - pct,
+         xlab = "Hours", ylab = "Survival", type = "l", lty = c(1, 2, 2), lwd = c(2, 1, 1), xlim = c(0, 20), col = "red"
+)
+
+result.surv.reverse <- survfit(Surv(-t, delta) ~ 1, conf.int = T, data = Baboons, conf.type = "log-log")
+plot(result.surv.reverse, xlim = c(0, -18), fun = "event")
+```
+
+```{r}
+library(interval)
+data(bcos)
+bcos[c(1, 33, 47, 62, 90), ]
+
+icout <- icfit(Surv(left, right, type = "interval2") ~ treatment,
+               data = bcos, conf.int = F
+)
+
+plot(icout,
+     XLAB = "Time in months", YLAB = "Survival probability",
+     COL = c("lightblue", "pink"), LEGEND = F,
+     estpar = list(col = c("blue", "red"), lwd = 2, lty = 1)
+)
+
+legend("bottomleft",
+       legend = c("Radiation alone", "Radiation and chemo"),
+       col = c("blue", "red"), lwd = 2
+)
+
+bcos <- within(bcos, {
+  left.alt <- left
+  left.alt[left == 0] <- 0.1
+  right.alt <- right
+  right.alt[is.infinite(right)] <- 65
+})
+
+bcos[c(1, 33, 47, 62, 90), ]
+
+bcos.survreg <-
+  survreg(Surv(left.alt, right.alt, type = "interval2") ~ treatment,
+          dist = "weibull", data = bcos
+  )
+pct <- 1:999 / 1000
+
+ptime <- predict(bcos.survreg,
+                 type = "quantile",
+                 newdata = data.frame(treatment = c("Rad", "RadChem")),
+                 p = pct, se = F
+)
+lines(ptime[1, ], 1 - pct,
+      xlab = "Hours", ylab = "Survival", type = "l",
+      lty = c(1, 2, 2), lwd = c(2, 1, 1), xlim = c(0, 20), col = "blue"
+)
+lines(ptime[2, ], 1 - pct,
+      xlab = "Hours", ylab = "Survival", type = "l",
+      lty = c(1, 2, 2), lwd = c(2, 1, 1), xlim = c(0, 20), col = "red"
+)
+```
+
+# 12.3 The Lasso Method for Selecting Predictive Biomarkers
+
+```{r}
+hepatoCellularNoMissing <- hepatoCellular[complete.cases(hepatoCellular), ]
+hepatoCellularNoMissing[c(1, 5, 12), c(16, 17, 23:27)]
+attach(hepatoCellularNoMissing)
+
+library(penalized)
+
+hepato.pen <- penalized(Surv(OS, Death),
+                        penalized = hepatoCellularNoMissing[, 23:48],
+                        standardize = T, lambda1 = 10
+)
+
+round(coef(hepato.pen, standardize = T), 3)
+
+set.seed(34)
+hepato.prof <- profL1(Surv(OS, Death),
+                      penalized = hepatoCellularNoMissing[, 23:48],
+                      standardize = T, fold = 10, minlambda1 = 2, maxlambda1 = 12
+)
+
+plot(hepato.prof$cvl ~ hepato.prof$lambda,
+     type = "l", log = "x",
+     xlab = "lambda", ylab = "Cross-validated log partial likelihood"
+)
+
+set.seed(34)
+hepato.opt <- optL1(Surv(OS, Death), penalized = hepatoCellularNoMissing[, 23:48], standardize = T, fold = 10)
+hepato.opt$lambda
+abline(v = hepato.opt$lambda, col = "gray")
+
+hepato.pen <- penalized(Surv(OS, Death),
+                        penalized = hepatoCellularNoMissing[, 23:48], standardize = T,
+                        steps = 20, lambda1 = 5
+)
+plotpath(hepato.pen, labelsize = 0.9, standardize = T, log = "x", lwd = 2)
+abline(v = hepato.opt$lambda, col = "gray", lwd = 2)
+
+hepato.pen <- penalized(Surv(OS, Death),
+                        penalized = hepatoCellularNoMissing[, 23:48],
+                        standardize = T, lambda1 = hepato.opt$lambda
+)
+
+round(coef(hepato.pen, standardize = T), 3)
+
+plot(predict(hepato.pen, penalized = hepatoCellularNoMissing[c(1, 5, 12), 23:48]))
+
+hepato.predict.1 <- predict(hepato.pen, penalized = hepatoCellularNoMissing[1, 23:48])
+hepato.predict.5 <- predict(hepato.pen, penalized = hepatoCellularNoMissing[5, 23:48])
+hepato.predict.12 <- predict(hepato.pen, penalized = hepatoCellularNoMissing[12, 23:48])
+
+slotNames(hepato.predict.1)
+
+plot(stepfun(hepato.predict.1@time[-1], hepato.predict.1@curves),
+     do.points = F, ylim = c(0, 1), xlab = "Time in months", ylab = "Predicted survival probability"
+)
+plot(stepfun(hepato.predict.5@time[-1], hepato.predict.5@curves), do.points = F, add = T, col = "blue", lwd = 2)
+plot(stepfun(hepato.predict.12@time[-1], hepato.predict.12@curves), do.points = F, add = T, col = "red")
+legend("bottomleft", legend = c("Patient 1", "Patient 5", "Patient 12"), col = c("black", "blue", "red"))
+```
